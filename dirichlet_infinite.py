@@ -132,7 +132,7 @@ if __name__ == "__main__":
     #Define MDP
     state = 5
     action = 5
-    seeds = [105, 106]
+    seeds = np.arange(200, 230)
     for seed in seeds:
         np.random.seed(seed)
         reward = np.random.normal(0.0, 1.0, size=(state, action, state))
@@ -146,11 +146,11 @@ if __name__ == "__main__":
         total_regret = []
 
         #TODO: add agents to the list
-        num_agents = [1, 2]
+        num_agents = [160, 170, 180, 190, 200]
         for i in num_agents:
             print("agents: ", i)
             psrl = DirichletInfiniteAgent(i, state, action, 20000, 0.75, trans_p, reward)
             regret = psrl.train(1000, int(np.random.randint(0, state, 1)))
             total_regret += [regret]
 
-        np.savetxt("result" + str(seed) + ".csv", np.column_stack((num_agents, total_regret)), delimiter=",")
+        np.savetxt("result_beyond_150_agents_" + str(seed) + ".csv", np.column_stack((num_agents, total_regret)), delimiter=",")
