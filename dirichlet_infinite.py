@@ -29,12 +29,11 @@ _device_ddtype_tensor_map = {
 }
 
 
-def policy_from_mdp(trans_prob, reward, S, A, tol=0.01):
+def policy_from_mdp(trans_prob, reward, S, A, tol=0.01, gamma=0.99):
     # performs undiscounted value iteration to output an optimal policy
     value_func = torch.zeros(S)
     policy = torch.zeros(S)
     iter = 0
-    gamma = 0.99
     while True:
         diff = torch.zeros(S)
         value = value_func
@@ -70,8 +69,6 @@ class DirichletFiniteAgent:
         self.optimal_policy = optimal_policy  # [n_envs, n_S]
         # concentration parameters of Dirichlet posterior of transition_p
         self.alpha = torch.ones(num_envs, S, A, S)  
-        self.reward_mean = torch.zeros(num_envs, S, A) 
-        self.reward_scale = torch.ones(num_envs, S, A)
 
     def posterior_sample(self, alpha, n_sample):
         dist_trans_p = torch.distributions.dirichlet.Dirichlet(alpha)
@@ -80,31 +77,24 @@ class DirichletFiniteAgent:
 
     def train(self, num_time_step):
         cum_regret = torch.zeros(self.num_envs, self.num_agents)
-        num_visits = torch.zeros((self.num_envs, self.S, self.A, self.S))
+        num_visits = torch.zeros(self.num_envs, self.S, self.A, self.S)
+        ref_num_visits = torch.zeros(self.num_envs, self.S, self.A)
         model_reward = torch.zeros((self.num_envs, self.S, self.A))
         # initialize state tracking for each agent in each env
         curr_states = torch.randint(0, self.S, size=[self.num_envs, self.num_agents])
         # initialize state tracking for the optimal agent in each env
         curr_optimal_state = torch.randint(0, self.S, size=[self.num_envs])
 
-        time_step = 1
+        # (Alg) sample MDP's from the posterior 
+        sampled_trans_p = self.posterior_sample(self.alpha, self.num_agents)  
+        sampled_trans_p = torch.transpose(sampled_trans_p, 0, 1)
         policy = torch.zeros((self.num_envs, self.num_agents, self.S), dtype=torch.int64)
-        ref_num_visits = num_visits
+        for env in range(self.num_envs):
+            for agent in range(self.num_agents):
+                policy[env, agent, :] = policy_from_mdp(
+                    sampled_trans_p[env, agent], self.rewards[env, agent], self.S, self.A)
+        time_step = 1
         while time_step < num_time_step:
-            for env in range(self.num_envs):
-                # check whether to start new epoch for this env 
-                # skip the case when ref_num_visits is 0
-                if torch.any(
-                    (num_visits[env] + 0.1 - 2 * ref_num_visits[env]) * ref_num_visits[env] > 0):
-                    ref_num_visits[env] = num_visits[env]
-                    # resample trans_p and update policy for this env
-                    # [n_agents, n_S, n_A, n_S]
-                    sampled_trans_p = self.posterior_sample(self.alpha[env], self.num_agents)
-                    # extract optimal policies from sampled MDP's: [n_envs, n_agents, n_S]
-                    for agent in range(self.num_agents):
-                        policy[env, agent, :] = policy_from_mdp(
-                            sampled_trans_p[agent], self.rewards[env, agent], self.S, self.A)
-
             # agents rollout
             s_t = curr_states  # [n_envs, n_agents]
             a_t = policy[
@@ -159,17 +149,30 @@ class DirichletFiniteAgent:
                     a_t[:, agent].unsqueeze(-1).unsqueeze(-1)] \
                         += reward[:, agent].unsqueeze(-1).unsqueeze(-1)
 
-
             # update the posterior of the Dirichlet alpha of transitions
             self.alpha = torch.ones(self.alpha.shape) + num_visits
-            # update the posterior of the Gaussian of rewards, [n_envs, n_S, n_A]
-            count = torch.ones(self.num_envs, self.S, self.A) + torch.sum(num_visits, dim=-1)
-            self.reward_mean = model_reward / count
-            self.reward_scale = 1 / torch.sqrt(count)
+
+            # check break epoch for each env
+            for env in range(self.num_envs):
+                # skip the entries where current num_visits is 0
+                if torch.any(
+                    torch.logical_and(
+                        num_visits[env].sum(-1) >= ref_num_visits[env] * 2, \
+                            num_visits[env].sum(-1) > 0)):
+                    ref_num_visits[env] = num_visits[env].sum(-1).detach().clone()
+                    # resample trans_p and update policy for this env
+                    # [n_agents, n_S, n_A, n_S]
+                    sampled_trans_p = self.posterior_sample(self.alpha[env], self.num_agents)
+                    # extract optimal policies from sampled MDP's: [n_envs, n_agents, n_S]
+                    for agent in range(self.num_agents):
+                        policy[env, agent] = policy_from_mdp(
+                            sampled_trans_p[agent], 
+                            self.rewards[env, agent], 
+                            self.S, self.A)
 
             time_step += 1
 
-        # evaluate episodic regret
+        # evaluate final regret
         per_step_regret = cum_regret / num_time_step  # [n_envs, n_agents]
         per_step_per_agent_regret = per_step_regret.mean(dim=-1)  # [n_envs]
         per_step_per_agent_Bayesian_regret = per_step_per_agent_regret.mean()
@@ -189,10 +192,10 @@ if __name__ == "__main__":
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms = True
 
-    num_states = 20
-    num_actions = 10
+    num_states = 5
+    num_actions = 5
     num_envs = 10
-    num_time_step = 5000
+    num_time_step = 1000
     # seeds = range(100, 101)
     seeds = (100,)
     for seed in seeds:
@@ -213,12 +216,13 @@ if __name__ == "__main__":
         all_env_optimal_policy = torch.zeros((num_envs, num_states), dtype=torch.int64)
         for env in range(num_envs):
             all_env_optimal_policy[env] = policy_from_mdp(
-                all_env_trans_p[env], all_env_rewards[env], num_states, num_actions, tol=0.001)
+                all_env_trans_p[env], all_env_rewards[env], 
+                num_states, num_actions, tol=0.001, gamma=0.999)
 
         regrets = []
 
         # TODO: there is a bug for num_agents = 1 
-        list_num_agents = [2, 4, 6, 8, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        list_num_agents = [2, 4, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
         # list_num_agents = [80, 90, 100]
         for num_agents in list_num_agents:
             print("num of agents: ", num_agents)
