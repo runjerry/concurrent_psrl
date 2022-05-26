@@ -57,18 +57,17 @@ class DirichletFiniteAgent:
         A: size of the action space
         trans_p: transitions probabilities, size [n_env, n_agents, n_S, n_A, n_S]
         rewards: rewards, size [n_envs, n_agents, n_S, n_A]
-        optimal_policy: optimal policies for all envs, duplicated for num_agents, 
-            size [n_envs, n_S]
+        optimal_policy: optimal policies for all envs, size [n_envs, n_S]
         """
         self.num_agents = num_agents
         self.num_envs = num_envs
         self.S = S
         self.A = A
-        self.trans_p = trans_p
+        self.trans_p = trans_p  # [n_envs, n_agents, n_S, n_A, n_S]
         self.optimal_trans_p = trans_p[:, 0, ...]  # [n_envs, n_S, n_A, n_S]
-        self.rewards = rewards
+        self.rewards = rewards  # [n_envs, n_agents, n_S, n_A]
         self.optimal_rewards = rewards[:, 0, ...]  # [n_envs, n_S, n_A]
-        self.optimal_policy = optimal_policy
+        self.optimal_policy = optimal_policy  # [n_envs, n_S]
         # concentration parameters of Dirichlet posterior of transition_p
         self.alpha = torch.ones(num_envs, S, A, S)  
         self.reward_mean = torch.zeros(num_envs, S, A) 
@@ -156,12 +155,13 @@ class DirichletFiniteAgent:
                     model_reward[
                         torch.arange(self.num_envs).unsqueeze(-1).unsqueeze(-1),
                         s_t[:, agent].unsqueeze(-1).unsqueeze(-1),
-                        a_t[:, agent].unsqueeze(-1).unsqueeze(-1)] += reward[:, agent].unsqueeze(-1).unsqueeze(-1)
+                        a_t[:, agent].unsqueeze(-1).unsqueeze(-1)] \
+                            += reward[:, agent].unsqueeze(-1).unsqueeze(-1)
 
             # update the posterior of the Dirichlet alpha of transitions
             self.alpha = torch.ones(self.alpha.shape) + num_visits
-            # update the posterior of the Gaussian of rewards
-            count = torch.ones(self.num_envs, self.S, self.A) + torch.sum(num_visits, dim=-1)  # [n_envs, n_S, n_A]
+            # update the posterior of the Gaussian of rewards, [n_envs, n_S, n_A]
+            count = torch.ones(self.num_envs, self.S, self.A) + torch.sum(num_visits, dim=-1)
             self.reward_mean = model_reward / count
             self.reward_scale = 1 / torch.sqrt(count)
 
@@ -214,9 +214,9 @@ if __name__ == "__main__":
 
         regrets = []
 
-        # list_num_agents = [1, 2, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-        # list_num_agents = [2, 4, 10, 20, 30, 40, 50, 60, 70] #, 80, 90, 100]
-        list_num_agents = [80, 90, 100]
+        # TODO: there is a bug for num_agents = 1 
+        list_num_agents = [2, 4, 10, 20, 30, 40, 50, 60, 70] #, 80, 90, 100]
+        # list_num_agents = [80, 90, 100]
         for num_agents in list_num_agents:
             print("num of agents: ", num_agents)
             # [n_envs, n_agents, n_S, n_A, n_S]
