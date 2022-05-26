@@ -1,8 +1,8 @@
-###################### concurrent PSRL #################################
+############### concurrent PSRL #################################
 #
-# This version keeps track of the transition only, assuming known reward 
+# This version keeps track of both transition and reward function 
 #
-########################################################################
+#################################################################
 
 import numpy as np
 import random
@@ -75,11 +75,13 @@ class DirichletFiniteAgent:
         self.optimal_policy = optimal_policy  # [n_envs, n_S]
         # concentration parameters of Dirichlet posterior of transition_p
         self.alpha = torch.ones(num_envs, S, A, S)  
+        self.reward_mean = torch.zeros(num_envs, S, A) 
+        self.reward_scale = torch.ones(num_envs, S, A)
 
-    def posterior_sample(self, alpha, n_sample):
+    def posterior_sample(self, alpha, mu, scale, n_sample):
         dist_trans_p = torch.distributions.dirichlet.Dirichlet(alpha)
-        return dist_trans_p.sample([n_sample])
-        # return torch.transpose(trans_p, 0, 1)
+        dist_reward = torch.distributions.normal.Normal(mu, scale)
+        return dist_trans_p.sample([n_sample]), dist_reward.sample([n_sample])
 
     def train(self, num_time_step):
         cum_regret = torch.zeros(self.num_envs, self.num_agents)
@@ -92,13 +94,15 @@ class DirichletFiniteAgent:
         curr_optimal_state = torch.randint(0, self.S, size=[self.num_envs])
 
         # (Alg) sample MDP's from the posterior 
-        sampled_trans_p = self.posterior_sample(self.alpha, self.num_agents)  
+        sampled_trans_p, sampled_rewards = self.posterior_sample(
+            self.alpha, self.reward_mean, self.reward_scale, self.num_agents)  
         sampled_trans_p = torch.transpose(sampled_trans_p, 0, 1)
+        sampled_rewards = torch.transpose(sampled_rewards, 0, 1)
         policy = torch.zeros((self.num_envs, self.num_agents, self.S), dtype=torch.int64)
         for env in range(self.num_envs):
             for agent in range(self.num_agents):
                 policy[env, agent, :] = policy_from_mdp(
-                    sampled_trans_p[env, agent], self.rewards[env, agent], self.S, self.A)
+                    sampled_trans_p[env, agent], sampled_rewards[env, agent], self.S, self.A)
         time_step = 1
         while time_step < num_time_step:
             # agents rollout
@@ -157,6 +161,10 @@ class DirichletFiniteAgent:
 
             # update the posterior of the Dirichlet alpha of transitions
             self.alpha = torch.ones(self.alpha.shape) + num_visits
+            # update the posterior of the Gaussian of rewards, [n_envs, n_S, n_A]
+            count = torch.ones(self.num_envs, self.S, self.A) + torch.sum(num_visits, dim=-1)
+            self.reward_mean = model_reward / count
+            self.reward_scale = 1 / torch.sqrt(count)
 
             # check break epoch for each env
             for env in range(self.num_envs):
@@ -168,12 +176,13 @@ class DirichletFiniteAgent:
                     ref_num_visits[env] = num_visits[env].sum(-1).detach().clone()
                     # resample trans_p and update policy for this env
                     # [n_agents, n_S, n_A, n_S]
-                    sampled_trans_p = self.posterior_sample(self.alpha[env], self.num_agents)
+                    sampled_trans_p, sampled_rewards = self.posterior_sample(
+                        self.alpha[env], self.reward_mean[env], 
+                        self.reward_scale[env], self.num_agents)  
                     # extract optimal policies from sampled MDP's: [n_envs, n_agents, n_S]
                     for agent in range(self.num_agents):
                         policy[env, agent] = policy_from_mdp(
-                            sampled_trans_p[agent], 
-                            self.rewards[env, agent], 
+                            sampled_trans_p[agent], sampled_rewards[agent], 
                             self.S, self.A)
 
             time_step += 1
@@ -249,6 +258,6 @@ if __name__ == "__main__":
         total_regret = torch.stack(regrets)
         total_regret_np = total_regret.cpu().detach().numpy()
 
-        np.savetxt("results/infinite" + "_S_" + str(num_states) + "_A_" + str(num_actions) +  "_T_" + str(num_time_step) + "_agents_" + str(list_num_agents[-1]) + ".csv", np.column_stack((list_num_agents, total_regret_np)), delimiter=",")
+        np.savetxt("results/full_infinite" + "_S_" + str(num_states) + "_A_" + str(num_actions) +  "_T_" + str(num_time_step) + "_agents_" + str(list_num_agents[-1]) + ".csv", np.column_stack((list_num_agents, total_regret_np)), delimiter=",")
 
 

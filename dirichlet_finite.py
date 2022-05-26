@@ -166,12 +166,17 @@ class DirichletFiniteAgent:
             self.reward_scale = 1 / torch.sqrt(count)
 
         # evaluate episodic regret
-        per_step_regret = cum_regret / (episodes * horizon)  # [n_envs, n_agents]
-        per_step_per_agent_regret = per_step_regret.mean(dim=-1)  # [n_envs]
-        per_step_per_agent_Bayesian_regret = per_step_per_agent_regret.mean()
-        print("bayesian regret: ", per_step_per_agent_Bayesian_regret)
+        per_agant_regret = cum_regret.mean(dim=-1)  # [n_envs]
+        per_agent_bayesian_regret = per_agant_regret.mean()
+        print("bayesian regret: ", per_agent_bayesian_regret)
 
-        return per_step_per_agent_Bayesian_regret
+        return per_agent_bayesian_regret
+
+        # per_step_regret = cum_regret / (episodes * horizon)  # [n_envs, n_agents]
+        # per_step_per_agent_regret = per_step_regret.mean(dim=-1)  # [n_envs]
+        # per_step_per_agent_Bayesian_regret = per_step_per_agent_regret.mean()
+        # print("bayesian regret: ", per_step_per_agent_Bayesian_regret)
+        # return per_step_per_agent_Bayesian_regret
 
 
 
