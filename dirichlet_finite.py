@@ -167,7 +167,7 @@ class DirichletFiniteAgent:
 
         # evaluate episodic regret
         per_step_regret = cum_regret / (episodes * horizon)  # [n_envs, n_agents]
-        per_step_per_agent_regret = per_step_regret / self.num_agents  # [n_envs]
+        per_step_per_agent_regret = per_step_regret.mean(dim=-1)  # [n_envs]
         per_step_per_agent_Bayesian_regret = per_step_per_agent_regret.mean()
         print("bayesian regret: ", per_step_per_agent_Bayesian_regret)
 

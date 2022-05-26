@@ -171,7 +171,7 @@ class DirichletFiniteAgent:
 
         # evaluate episodic regret
         per_step_regret = cum_regret / num_time_step  # [n_envs, n_agents]
-        per_step_per_agent_regret = per_step_regret / self.num_agents  # [n_envs]
+        per_step_per_agent_regret = per_step_regret.mean(dim=-1)  # [n_envs]
         per_step_per_agent_Bayesian_regret = per_step_per_agent_regret.mean()
         print("bayesian regret: ", per_step_per_agent_Bayesian_regret)
 
@@ -189,10 +189,10 @@ if __name__ == "__main__":
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms = True
 
-    num_states = 10
-    num_actions = 5
+    num_states = 20
+    num_actions = 10
     num_envs = 10
-    num_time_step = 200
+    num_time_step = 5000
     # seeds = range(100, 101)
     seeds = (100,)
     for seed in seeds:
@@ -218,7 +218,7 @@ if __name__ == "__main__":
         regrets = []
 
         # TODO: there is a bug for num_agents = 1 
-        list_num_agents = [2, 4, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        list_num_agents = [2, 4, 6, 8, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
         # list_num_agents = [80, 90, 100]
         for num_agents in list_num_agents:
             print("num of agents: ", num_agents)
@@ -234,6 +234,6 @@ if __name__ == "__main__":
         total_regret = torch.stack(regrets)
         total_regret_np = total_regret.cpu().detach().numpy()
 
-        np.savetxt("results/infinite_" + str(seed) + "_agents_" + str(list_num_agents[-1]) + ".csv", np.column_stack((list_num_agents, total_regret_np)), delimiter=",")
+        np.savetxt("results/infinite" + "_S_" + str(num_states) + "_A_" + str(num_actions) +  "_T_" + str(num_time_step) + "_agents_" + str(list_num_agents[-1]) + ".csv", np.column_stack((list_num_agents, total_regret_np)), delimiter=",")
 
 
